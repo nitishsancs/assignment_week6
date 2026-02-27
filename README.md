@@ -2,6 +2,8 @@
 
 ## CVE Data Distribution Analysis & Model Metrics Impact
 
+**[Live Demo on Streamlit Cloud](https://week6assignment-nitish.streamlit.app/)**
+
 An interactive **Streamlit** dashboard that demonstrates how **changing data distribution** affects **machine learning model metrics** on real-world **NVD (National Vulnerability Database) CVE data**. The dashboard implements a full **Muller Loop** pipeline — training four classification algorithms and visualizing how upsampling/downsampling different features impacts model performance.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
