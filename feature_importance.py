@@ -119,8 +119,11 @@ def compute_shap_importance(
 
     # Mean absolute SHAP value across all classes
     if isinstance(shap_values, list):
-        # Multi-class: average across classes
+        # Multi-class: list of 2D arrays (one per class)
         mean_abs = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
+    elif shap_values.ndim == 3:
+        # Multi-class: 3D array (samples, features, classes)
+        mean_abs = np.abs(shap_values).mean(axis=(0, 2))
     else:
         mean_abs = np.abs(shap_values).mean(axis=0)
 
