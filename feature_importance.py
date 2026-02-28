@@ -26,7 +26,7 @@ def compute_gini_importance(
     rf = RandomForestClassifier(
         n_estimators=n_estimators,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
         max_depth=10,
     )
     rf.fit(X, y)
@@ -60,7 +60,7 @@ def compute_permutation_importance(
     rf = RandomForestClassifier(
         n_estimators=100,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
         max_depth=10,
     )
     rf.fit(X_train, y_train)
@@ -69,7 +69,7 @@ def compute_permutation_importance(
         rf, X_test, y_test,
         n_repeats=n_repeats,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
         scoring="f1_macro",
     )
 
@@ -85,7 +85,7 @@ def compute_permutation_importance(
 def compute_shap_importance(
     X: pd.DataFrame,
     y: pd.Series,
-    max_samples: int = 500,
+    max_samples: int = 200,
     random_state: int = 42,
 ) -> Tuple[pd.DataFrame, Optional[object]]:
     """
@@ -101,21 +101,21 @@ def compute_shap_importance(
         return pd.DataFrame(columns=["feature", "importance"]), None
 
     rf = RandomForestClassifier(
-        n_estimators=100,
+        n_estimators=50,
         random_state=random_state,
-        n_jobs=-1,
-        max_depth=10,
+        n_jobs=1,
+        max_depth=8,
     )
     rf.fit(X, y)
 
-    # Subsample for speed
+    # Subsample for speed and memory
     if len(X) > max_samples:
         X_sample = X.sample(n=max_samples, random_state=random_state)
     else:
         X_sample = X
 
     explainer = shap.TreeExplainer(rf)
-    shap_values = explainer.shap_values(X_sample)
+    shap_values = explainer.shap_values(X_sample, check_additivity=False)
 
     # Mean absolute SHAP value across all classes
     if isinstance(shap_values, list):

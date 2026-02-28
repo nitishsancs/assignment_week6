@@ -6,6 +6,7 @@ Uses real NVD CVE data from local JSON files.
 """
 
 import sys
+import gc
 from pathlib import Path
 
 # Ensure the dashboard package is importable
@@ -53,39 +54,34 @@ def cached_load_data():
 
 
 @st.cache_data(show_spinner="Engineering features...")
-def cached_prepare_features(df_hash):
-    df = st.session_state["raw_df"]
-    return prepare_features(df, return_feature_names=True)
+def cached_prepare_features(_df):
+    return prepare_features(_df, return_feature_names=True)
 
 
-@st.cache_data(show_spinner="Computing feature importances...")
-def cached_importances(df_hash):
-    X = st.session_state["X_base"]
-    y = st.session_state["y_base"]
-    return compute_all_importances(X, y)
+@st.cache_data(show_spinner="Computing feature importances (this may take a minute)...")
+def cached_importances(_X, _y):
+    result = compute_all_importances(_X, _y)
+    gc.collect()
+    return result
+
+
+@st.cache_data(show_spinner="Running baseline Muller loop (4 algorithms)...")
+def cached_baseline_muller(_X, _y):
+    result = run_muller_loop(_X, _y)
+    gc.collect()
+    return result
 
 
 # ──────────────────────────────────────────────
-# Initialize session state
+# Initialize data (all cached to survive reruns)
 # ──────────────────────────────────────────────
-if "raw_df" not in st.session_state:
-    st.session_state["raw_df"] = cached_load_data()
+raw_df = cached_load_data()
 
-raw_df = st.session_state["raw_df"]
-df_hash = len(raw_df)
-
-if "X_base" not in st.session_state:
-    X_base, y_base, feature_names = prepare_features(raw_df, return_feature_names=True)
-    st.session_state["X_base"] = X_base
-    st.session_state["y_base"] = y_base
-    st.session_state["feature_names"] = feature_names
-
-X_base = st.session_state["X_base"]
-y_base = st.session_state["y_base"]
-feature_names = st.session_state["feature_names"]
+X_base, y_base, feature_names = cached_prepare_features(raw_df)
+gc.collect()
 
 # Subsample for training (SVM is O(n^2), so we cap training data)
-MAX_TRAIN_SAMPLES = 10000
+MAX_TRAIN_SAMPLES = 5000
 
 def _subsample(X, y, max_n=MAX_TRAIN_SAMPLES):
     """Stratified subsample if data exceeds max_n."""
@@ -99,16 +95,9 @@ def _subsample(X, y, max_n=MAX_TRAIN_SAMPLES):
 
 X_train_base, y_train_base = _subsample(X_base, y_base)
 
-if "importances" not in st.session_state:
-    st.session_state["importances"] = compute_all_importances(X_train_base, y_train_base)
+importances = cached_importances(X_train_base, y_train_base)
 
-importances = st.session_state["importances"]
-
-if "baseline_results" not in st.session_state:
-    with st.spinner(f"Running baseline Muller loop on {len(X_train_base):,} samples (4 algorithms)..."):
-        st.session_state["baseline_results"] = run_muller_loop(X_train_base, y_train_base)
-
-baseline_results = st.session_state["baseline_results"]
+baseline_results = cached_baseline_muller(X_train_base, y_train_base)
 
 if "current_results" not in st.session_state:
     st.session_state["current_results"] = dict(baseline_results)

@@ -82,7 +82,7 @@ def _get_algorithms() -> Dict[str, object]:
             use_label_encoder=False,
             eval_metric="mlogloss",
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
             verbosity=0,
         )
     except ImportError:
@@ -108,13 +108,13 @@ def _get_algorithms() -> Dict[str, object]:
             n_estimators=100,
             max_depth=10,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
         ),
         "SVM": SVC(
             kernel="rbf",
             probability=True,
             random_state=42,
-            max_iter=5000,
+            max_iter=2000,
         ),
     }
     return algorithms
