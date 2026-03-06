@@ -277,6 +277,62 @@ def optimization_result_to_df(result: OptimizationResult) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def run_gap_analysis(
+    raw_df: pd.DataFrame,
+    feature_name: str,
+    feature_type: str,
+    slider_values: list,
+    selected_algos=None,
+    max_samples: int = 10000,
+    use_smote: bool = False,
+    progress_callback=None,
+) -> list:
+    """
+    Collect train-val F1 gaps across a set of slider values.
+    Returns list of dicts with keys: slider, algo, train_f1, val_f1, gap.
+    Used to detect gap widening (overfitting signal) as upsampling increases.
+    """
+    from muller_loop import run_muller_loop
+
+    gap_data = []
+    total = len(slider_values)
+    for idx, sv in enumerate(slider_values):
+        try:
+            if abs(sv) < 0.01:
+                X_mod, y_mod, _ = prepare_features(raw_df)
+                X_mod, y_mod = _subsample(X_mod, y_mod, max_samples)
+            elif feature_type == "target" and use_smote:
+                X_mod, y_mod = prepare_features(raw_df)[:2]
+                X_mod, y_mod = _subsample(X_mod, y_mod, max_samples)
+                X_mod, y_mod = modify_distribution_smote(X_mod, y_mod, sv)
+            else:
+                df_mod = modify_distribution_raw(raw_df, feature_name, feature_type, sv)
+                X_mod, y_mod, _ = prepare_features(df_mod)
+                X_mod, y_mod = _subsample(X_mod, y_mod, max_samples)
+
+            results = run_muller_loop(
+                X_mod, y_mod, selected_algos=selected_algos,
+                cv_folds=3, compute_learning_curves=False,
+            )
+            for algo_name, result in results.items():
+                gap_data.append({
+                    "slider": float(sv),
+                    "algo": algo_name,
+                    "train_f1": result.train_f1,
+                    "val_f1": result.val_f1,
+                    "gap": result.train_f1 - result.val_f1,
+                })
+
+            if progress_callback:
+                progress_callback(idx, total)
+
+        except Exception as e:
+            print(f"  Gap analysis step {sv:.2f} failed: {e}")
+            continue
+
+    return gap_data
+
+
 def get_fit_diagnosis(result: "ModelResult") -> dict:
     """
     Diagnose overfitting/underfitting for a model result.

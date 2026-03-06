@@ -25,6 +25,7 @@ from automl_optimizer import (
     run_full_optimization,
     optimization_result_to_df,
     get_fit_diagnosis,
+    run_gap_analysis,
     OptimizationResult,
 )
 from visualizations import (
@@ -43,6 +44,7 @@ from visualizations import (
     plot_cv_scores,
     plot_fit_diagnosis_summary,
     plot_multi_feature_optimization_summary,
+    plot_gap_widening,
     ALGO_COLORS,
     SEVERITY_COLORS,
     FIT_STATUS_COLORS,
@@ -469,14 +471,68 @@ with tab_overfit:
     if not has_lc:
         st.warning("No learning curve data available. Run the AutoML optimization to generate learning curves.")
 
+    # Gap widening analysis
+    st.subheader("Gap Widening Analysis (Train-Val Gap vs Upsampling)")
+    st.markdown("""
+    This analysis tracks how the **train-val F1 gap** changes as you increase upsampling.
+    A **widening gap** indicates the model is overfitting to the resampled data.
+    """)
+
+    run_gap = st.button("📈 Run Gap Widening Analysis", key="run_gap_analysis")
+    if run_gap and selected_algos:
+        gap_sliders = [-0.6, -0.3, 0.0, 0.3, 0.6]
+        gap_progress = st.progress(0, text="Collecting train-val gaps across slider values...")
+
+        def gap_progress_cb(idx, total):
+            pct = min((idx + 1) / total, 1.0)
+            gap_progress.progress(pct, text=f"Gap analysis step {idx+1}/{total}...")
+
+        with st.spinner("Running gap widening analysis (5 slider values)..."):
+            gap_data = run_gap_analysis(
+                raw_df=raw_df,
+                feature_name=feat_name,
+                feature_type=feat_type,
+                slider_values=gap_sliders,
+                selected_algos=selected_algos,
+                max_samples=max_samples,
+                use_smote=use_smote,
+                progress_callback=gap_progress_cb,
+            )
+            st.session_state["gap_data"] = gap_data
+        gap_progress.progress(1.0, text="Gap analysis complete!")
+
+    gap_data = st.session_state.get("gap_data", None)
+    if gap_data:
+        fig_gap = plot_gap_widening(gap_data)
+        st.pyplot(fig_gap); plt.close(fig_gap)
+
+        # Interpret
+        import pandas as _pd
+        gdf = _pd.DataFrame(gap_data)
+        upsample_gaps = gdf[gdf["slider"] > 0.0].groupby("algo")["gap"].mean()
+        baseline_gaps = gdf[gdf["slider"] == 0.0].groupby("algo")["gap"].mean()
+        if not upsample_gaps.empty and not baseline_gaps.empty:
+            for algo in upsample_gaps.index:
+                bg = baseline_gaps.get(algo, 0)
+                ug = upsample_gaps.get(algo, 0)
+                if ug > bg + 0.01:
+                    st.warning(f"**{algo}**: Gap widens from {bg:.4f} → {ug:.4f} with upsampling. "
+                               f"Potential overfitting detected.")
+                else:
+                    st.success(f"**{algo}**: Gap stable ({bg:.4f} → {ug:.4f}). No significant overfitting.")
+    else:
+        st.info("Click **Run Gap Widening Analysis** to check if upsampling causes overfitting.")
+
     # Checklist
     st.subheader("Overfitting Checklist")
     has_learning_curves = any(r.learning_curve_train_sizes is not None for r in results_to_check.values())
     has_cv = any(r.cv_scores is not None for r in results_to_check.values())
     any_widening = any(d["gap"] > 0.05 for d in diagnoses.values())
+    has_gap_analysis = st.session_state.get("gap_data", None) is not None
 
     st.markdown(f"""
     - {'✅' if has_learning_curves else '❌'} **Learning Curves plotted** for best-performing algorithm
+    - {'✅ Analyzed' if has_gap_analysis else '❌ Not yet run'} **Gap widening analysis** across slider values (click button above)
     - {'⚠️ Yes — potential overfitting detected' if any_widening else '✅ No — gap is stable'} **Train-test gap widening** with upsampling?
     - {'✅' if has_cv else '❌'} **Cross-validation** used within Muller Loop to ensure generalizability
     """)
@@ -535,6 +591,38 @@ with tab_narrative:
 
         stats_df = get_distribution_stats(y_sub, y_opt)
         st.dataframe(stats_df, use_container_width=True, hide_index=True)
+
+        # Before/After feature histograms
+        if feat_name in raw_df.columns and feat_name != "severity":
+            st.markdown(f"**Feature Histogram: `{feat_name}` — Raw vs Optimized:**")
+            df_opt_hist = modify_distribution_raw(raw_df, feat_name, feat_type, opt_result.optimal_value)
+            fig_fhist = plot_feature_distribution_histogram(raw_df, df_opt_hist, feat_name, feat_type)
+            st.pyplot(fig_fhist); plt.close(fig_fhist)
+        elif feat_name == "severity":
+            st.markdown(f"**Target Class Histogram: Severity — Raw vs Optimized:**")
+            df_opt_hist = modify_distribution_raw(raw_df, feat_name, feat_type, opt_result.optimal_value)
+            fig_fhist = plot_feature_distribution_histogram(raw_df, df_opt_hist, feat_name, feat_type)
+            st.pyplot(fig_fhist); plt.close(fig_fhist)
+
+        # SMOTE discussion
+        st.markdown("""
+        **Resampling Approach:**
+
+        - **Random Oversampling** duplicates existing minority-class records. This is fast
+          but can amplify noise if the minority class contains outliers.
+        - **SMOTE** (Synthetic Minority Oversampling Technique) generates *synthetic* data
+          points by interpolating between existing minority neighbours. This produces
+          a smoother decision boundary but risks creating unrealistic samples if the
+          feature space is sparse.
+        - **Downsampling** removes majority-class records. This keeps all data authentic
+          but reduces the training set size, which can strip the model of the signal
+          it needs to learn (underfitting).
+
+        The AutoML loop tries distribution shifts in both directions. A *negative* optimal
+        slider value means the model actually benefits from *downsampling* (balancing
+        without synthetic noise). A *positive* value means upsampling minority classes
+        improved recall on rare severity levels.
+        """)
 
         # Before/After confusion matrices
         st.markdown("**Confusion Matrix Comparison (Baseline → Optimal):**")

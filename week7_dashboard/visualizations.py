@@ -452,6 +452,58 @@ def plot_fit_diagnosis_summary(diagnoses: Dict[str, dict]):
     return fig
 
 
+def plot_gap_widening(gap_data: list):
+    """
+    Plot how the train-val F1 gap changes across slider values.
+    gap_data is a list of dicts: [{"slider": float, "algo": str, "train_f1": float, "val_f1": float, "gap": float}, ...]
+    Shows whether upsampling causes the gap to widen (overfitting signal).
+    """
+    if not gap_data:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.text(0.5, 0.5, "No gap data available", ha="center", va="center")
+        return fig
+
+    df = pd.DataFrame(gap_data)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True,
+                                    gridspec_kw={"height_ratios": [2, 1]})
+
+    # Top: Train & Val F1 lines per algorithm
+    for algo in df["algo"].unique():
+        adf = df[df["algo"] == algo].sort_values("slider")
+        color = ALGO_COLORS.get(algo, "#333")
+        ax1.plot(adf["slider"], adf["train_f1"], "o-", color=color, linewidth=2,
+                 markersize=4, alpha=0.8, label=f"{algo} Train")
+        ax1.plot(adf["slider"], adf["val_f1"], "s--", color=color, linewidth=2,
+                 markersize=4, alpha=0.5, label=f"{algo} Val")
+
+    ax1.set_ylabel("F1 Score (Macro)", fontsize=12)
+    ax1.set_title("Train vs Validation F1 Across Distribution Shifts\n"
+                   "(Gap widening = overfitting signal)", fontsize=13, fontweight="bold")
+    ax1.legend(fontsize=8, ncol=4, loc="lower left")
+    ax1.grid(True, alpha=0.2)
+
+    # Bottom: Gap magnitude per algorithm
+    for algo in df["algo"].unique():
+        adf = df[df["algo"] == algo].sort_values("slider")
+        color = ALGO_COLORS.get(algo, "#333")
+        ax2.plot(adf["slider"], adf["gap"], "o-", color=color, linewidth=2,
+                 markersize=4, label=algo)
+
+    ax2.axhline(y=0.05, color="#e74c3c", linestyle="--", alpha=0.5, label="Overfit threshold (0.05)")
+    ax2.axhline(y=0, color="black", linewidth=0.5)
+    ax2.fill_between(df["slider"].unique(), 0.05, df["gap"].max() * 1.2 if df["gap"].max() > 0.05 else 0.1,
+                     alpha=0.05, color="#e74c3c")
+    ax2.set_xlabel("Slider Value (← Downsample | Upsample →)", fontsize=12)
+    ax2.set_ylabel("Gap (Train - Val F1)", fontsize=12)
+    ax2.set_title("Train-Val Gap Across Distribution Shifts", fontsize=12, fontweight="bold")
+    ax2.legend(fontsize=9)
+    ax2.grid(True, alpha=0.2)
+
+    fig.tight_layout()
+    return fig
+
+
 def plot_multi_feature_optimization_summary(opt_results: Dict):
     """Plot a summary comparing optimal values across multiple features."""
     if not opt_results:
