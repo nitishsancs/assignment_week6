@@ -1,4 +1,4 @@
-# Kursor — Week 6 Dashboard
+# Kursor — Week 7 Dashboard
 
 ## CVE Data Distribution Analysis & Model Metrics Impact
 
